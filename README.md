@@ -122,3 +122,9 @@ Badhi's [nvim-treesitter-cpp-tools](https://github.com/Badhi/nvim-treesitter-cpp
 I recently found an older plugin that implements *many* more cpp-related features. [lh-cpp](https://github.com/LucHermitte/lh-cpp/) takes a quite different approach to the problem, and I haven't experimented with it too much. Looks interesting.
 
 Finally, it's probably important to remember that roughly 90 percent of what this plugin does can be replicated with [sufficiently interesting vim stuff / black magic](https://vi.stackexchange.com/questions/44964/any-c-c-definition-generators-for-vim). 100 percent could be done by combining ideas like this with a willingness to just type more characters.
+
+### Thanks?
+
+If, for some unexpected reason, you found this helpful and would like to offer support:
+
+[![Buy Me a Coffee](https://cdn.buymeacoffee.com/buttons/v2/default-blue.png)](https://www.buymeacoffee.com/danielmsussman)
