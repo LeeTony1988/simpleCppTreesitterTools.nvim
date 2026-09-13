@@ -323,14 +323,15 @@ M.getImplementableFields = function(classNode)
         local preTypeKewordString = nil
         local postTypeKewordString = nil
         local functionTypeString = nil
-        local isConstexpr, isStatic,typeNode,functionDeclarator,pointerDeclarator,referenceDeclarator,functionDeclarator templateOrConstructorDeclaration = nil
+        local typeQualifiers = {}
+        local isStatic,typeNode,functionDeclarator,pointerDeclarator,referenceDeclarator,functionDeclarator templateOrConstructorDeclaration = nil
 
 
         for id, nodes in pairs(match) do
             local name  = query.captures[id]
             for _,node in ipairs(nodes) do
                 if name == "constexprKeyword" then
-                    isConstexpr =node
+                    table.insert(typeQualifiers, getNodeText(node))
                 end
                 if name == "staticKeyword" then
                     isStatic =node
@@ -384,8 +385,8 @@ M.getImplementableFields = function(classNode)
             if functionTypeString then
                 returnTypeString = returnTypeString..functionTypeString
             end
-            if isConstexpr then
-                returnTypeString = "constexpr "..returnTypeString
+            if #typeQualifiers > 0 then
+                returnTypeString = table.concat(typeQualifiers, " ") .. " " .. returnTypeString
             end
         end
 

@@ -1,7 +1,20 @@
 -- local treesitterUtilities = require("simpleCppTreesitterTools.simpleTreesitterUtilities")
 local treesitterUtilities = nil
 local helperBot = require("simpleCppTreesitterTools.fileHelpers")
+local namespaceHelpers = require("simpleCppTreesitterTools.namespaceHelpers")
 local M = {}
+
+local function field_child(node, field)
+    if not node then return nil end
+    if node.child_by_field_name then
+        return node:child_by_field_name(field)
+    end
+    if node.field then
+        local children = node:field(field)
+        return children and children[1] or nil
+    end
+    return nil
+end
 
 --will be set on call to init.lua's setCurrntFiles()
 M.data = {
@@ -87,7 +100,24 @@ M.determineLocalClass = function()
         classTemplateString,classAngleBrackets = treesitterUtilities.getClassTemplateInformation(classNode:parent())
     end
 
-    return className, classNode, classTemplateString, classAngleBrackets
+    local namespaceParts = {}
+    local parent = classNode:parent()
+    while parent do
+        if parent:type() == "namespace_definition" then
+            local nameNode = field_child(parent, "name")
+            local name = nameNode and vim.treesitter.get_node_text(nameNode, 0)
+                or vim.treesitter.get_node_text(parent, 0):match("namespace%s+([%w_:]+)")
+            if name and name ~= "" then
+                local parts = vim.split(name, "::", { plain = true })
+                for index = #parts, 1, -1 do
+                    if parts[index] ~= "" then table.insert(namespaceParts, 1, parts[index]) end
+                end
+            end
+        end
+        parent = parent:parent()
+    end
+
+    return className, classNode, classTemplateString, classAngleBrackets, namespaceParts
 end
 
 
@@ -99,7 +129,7 @@ Ideally, the cpp file has declaration in the same order as the header file (?),
 and we do this by scanning the table of nodes in the header for nodes 
 after the current target to see if their implementation exists already.
 ]]--
-M.writeImplementationInFileSorted = function(implementationContent,nodeTable,i,className)
+M.writeImplementationInFileSorted = function(implementationContent,nodeTable,i,className,namespaceParts)
     local lineTarget  = -1
     for loopIndex = i+1,#nodeTable do 
         local nodeBatch = nodeTable[loopIndex]
@@ -111,21 +141,32 @@ M.writeImplementationInFileSorted = function(implementationContent,nodeTable,i,c
             break
         end
     end
-    helperBot.insertLinesIntoFile(M.data.implementationFile,implementationContent,lineTarget,M.config.dontActuallyWriteFiles)
+    if M.config.dontActuallyWriteFiles then return end
+    local lines = vim.fn.readfile(M.data.implementationFile)
+    if lineTarget > 0 and lineTarget <= #lines then
+        for index = #implementationContent, 1, -1 do
+            table.insert(lines, lineTarget, implementationContent[index])
+        end
+    else
+        namespaceHelpers.insert(lines, namespaceParts or {}, implementationContent)
+    end
+    vim.fn.writefile(lines, M.data.implementationFile)
 end
 
 --[[
 Depending on the plugin config, either append the implementation to the end of the file or 
 try to keep the cpp file implementations in the same order as the header
 ]]--
-M.writeImplementationToFile = function(implementationContent, nodeTable,i,className)
+M.writeImplementationToFile = function(implementationContent, nodeTable,i,className,namespaceParts)
 
     if M.config.tryToPlaceImplementationInOrder then 
-        M.writeImplementationInFileSorted(implementationContent,nodeTable,i,className)
+        M.writeImplementationInFileSorted(implementationContent,nodeTable,i,className,namespaceParts)
 
     else
         if not M.config.dontActuallyWriteFiles then
-            vim.fn.writefile(implementationContent, M.data.implementationFile,"a")
+            local lines = vim.fn.readfile(M.data.implementationFile)
+            namespaceHelpers.insert(lines, namespaceParts or {}, implementationContent)
+            vim.fn.writefile(lines, M.data.implementationFile)
         end
     end
 
@@ -156,12 +197,16 @@ whose starting line number is on the function argument will be a potential targe
 M.addImplementationsToCPP = function(lineNumberRestriction)
     M.loadTreesitterUtilities()
 
-    local className, classNode,classTemplateString,classAngleBrackets  = M.determineLocalClass()
+    local className, classNode,classTemplateString,classAngleBrackets,namespaceParts  = M.determineLocalClass()
     if not classNode then
         return
     end
     if classAngleBrackets then
         className = className..classAngleBrackets
+    end
+    local lookupClassName = className
+    if #namespaceParts > 0 then
+        lookupClassName = table.concat(namespaceParts, "::") .. "::" .. className
     end
     local nodeTable = treesitterUtilities.getImplementableFields(classNode)
     for i, nodeBatch in ipairs(nodeTable) do 
@@ -179,7 +224,7 @@ M.addImplementationsToCPP = function(lineNumberRestriction)
             goto continue
         end
 
-        local alreadyImplemented = treesitterUtilities.testImplementationFileForFunction(functionName,listOfParameterTypes,className,M.data.implementationFile)
+        local alreadyImplemented = treesitterUtilities.testImplementationFileForFunction(functionName,listOfParameterTypes,lookupClassName,M.data.implementationFile)
 
         if alreadyImplemented then
             if M.config.verboseNotifications then
@@ -192,7 +237,7 @@ M.addImplementationsToCPP = function(lineNumberRestriction)
             if M.config.verboseNotifications then
                 vim.notify("implementing "..functionName)
             end
-            M.writeImplementationToFile(implementationContent,nodeTable, i,className)
+            M.writeImplementationToFile(implementationContent,nodeTable, i,lookupClassName,namespaceParts)
         end
         ::continue::
     end

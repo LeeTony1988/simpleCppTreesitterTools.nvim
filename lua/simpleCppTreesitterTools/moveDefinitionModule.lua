@@ -203,6 +203,104 @@ local function build_move_entry(node, bufnr, is_class)
     }
 end
 
+local function collect_declarations(root, bufnr)
+    local result = {}
+    local function walk(node)
+        local kind = node:type()
+        if kind == "declaration" or kind == "field_declaration" then
+            if not has_template_ancestor(node) and not named_descendant(node, "function_definition")
+                and not node_text(node, bufnr):match("=%s*0%s*;") then
+                local declarator = find_function_declarator(node)
+                local name = declarator and resolve_name_node(declarator)
+                if declarator and name then table.insert(result, node) end
+            end
+            return
+        end
+        for child in iter_named_children(node) do walk(child) end
+    end
+    walk(root)
+    table.sort(result, function(left, right) return left:start() < right:start() end)
+    return result
+end
+
+local function build_declaration_entry(node, bufnr)
+    local declarator = find_function_declarator(node)
+    local name = declarator and resolve_name_node(declarator)
+    if not declarator or not name then return nil end
+    local sr, sc = node:start(); local er, ec = node:end_()
+    local raw = vim.trim(table.concat(vim.api.nvim_buf_get_text(bufnr, sr, sc, er, ec, {}), "\n"))
+    raw = raw:gsub(";%s*$", "")
+    local nr, nc = name:start(); local ner, nec = name:end_()
+    local before = table.concat(vim.api.nvim_buf_get_text(bufnr, sr, sc, nr, nc, {}), "\n")
+    local after = table.concat(vim.api.nvim_buf_get_text(bufnr, ner, nec, er, ec, {}), "\n"):gsub(";%s*$", "")
+    local classes = containing_classes(node, bufnr)
+    local namespaces = containing_namespaces(node, bufnr)
+    local prefix = #classes > 0 and table.concat(classes, "::") .. "::" or ""
+    local return_prefix = strip_definition_keywords(vim.trim(before))
+    local qualified = prefix .. node_text(name, bufnr)
+    local signature = vim.trim(return_prefix ~= "" and (return_prefix .. " " .. qualified .. after)
+        or (qualified .. after))
+    return {
+        node = node,
+        signature = normalize_ws(signature),
+        definition = signature .. " {\n}",
+        namespaces = namespaces,
+    }
+end
+
+function M.implementAllFunctionsDeclaration(config)
+    config = config or {}
+    local bufnr = vim.api.nvim_get_current_buf()
+    local header = vim.api.nvim_buf_get_name(bufnr)
+    local ext = config.headerExtension or ".h"
+    if header == "" or header:sub(-#ext) ~= ext then
+        vim.notify("Run this command from a C++ header buffer", vim.log.levels.WARN)
+        return false
+    end
+    local ok, parser = pcall(vim.treesitter.get_parser, bufnr, "cpp")
+    if not ok or not parser then
+        vim.notify("C++ Treesitter parser is not available", vim.log.levels.ERROR)
+        return false
+    end
+    local entries = {}
+    for _, node in ipairs(collect_declarations(parser:parse()[1]:root(), bufnr)) do
+        local entry = build_declaration_entry(node, bufnr)
+        if entry then table.insert(entries, entry) end
+    end
+    if #entries == 0 then
+        vim.notify("No function declarations found", vim.log.levels.INFO)
+        return false
+    end
+    local cpp = vim.fn.fnamemodify(header, ":r") .. (config.implementationExtension or ".cpp")
+    local lines = vim.fn.filereadable(cpp) == 1 and vim.fn.readfile(cpp)
+        or { '#include "' .. vim.fn.fnamemodify(header, ":t") .. '"', "" }
+    local existing = normalize_ws(table.concat(lines, "\n"))
+    local grouped = {}
+    local added = 0
+    for _, entry in ipairs(entries) do
+        if not existing:find(entry.signature, 1, true) then
+            local key = table.concat(entry.namespaces, "::")
+            grouped[key] = grouped[key] or { namespaces = entry.namespaces, definitions = {} }
+            table.insert(grouped[key].definitions, entry.definition)
+            existing = existing .. " " .. entry.signature
+            added = added + 1
+        end
+    end
+    for _, group in pairs(grouped) do
+        local content = {}
+        for index, definition in ipairs(group.definitions) do
+            if index > 1 then table.insert(content, "") end
+            vim.list_extend(content, vim.split(definition, "\n", { plain = true }))
+        end
+        if #lines > 0 and lines[#lines] ~= "" then table.insert(lines, "") end
+        namespaceHelpers.insert(lines, group.namespaces, content)
+    end
+    if added > 0 and not config.dontActuallyWriteFiles then vim.fn.writefile(lines, cpp) end
+    vim.notify(string.format("Found %d declaration(s); added %d definition(s) to %s", #entries, added,
+        vim.fn.fnamemodify(cpp, ":t")), vim.log.levels.INFO)
+    return added > 0
+end
+
 local function move_all_definitions(config, want_class)
     config = config or {}
     local bufnr = vim.api.nvim_get_current_buf()

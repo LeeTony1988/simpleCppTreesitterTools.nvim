@@ -66,6 +66,11 @@ M.setup = function(opts)
             moveDefinitionModule.moveAllClassDefinitionsToImplementation(M.config)
         end,{desc = 'move all class member definitions to the implementation file'}
     )
+    vim.api.nvim_create_user_command("ImplementAllFunctionsDeclaration",
+        function()
+            moveDefinitionModule.implementAllFunctionsDeclaration(M.config)
+        end,{desc = 'implement all function declarations in the implementation file'}
+    )
 end
 
 --[[
