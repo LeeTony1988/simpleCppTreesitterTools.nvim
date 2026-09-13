@@ -56,6 +56,16 @@ M.setup = function(opts)
             moveDefinitionModule.moveCurrentDefinition(M.config)
         end,{desc = 'move the current C++ definition to the implementation file'}
     )
+    vim.api.nvim_create_user_command("MoveAllDefinitionsToImplementation",
+        function()
+            moveDefinitionModule.moveAllDefinitionsToImplementation(M.config)
+        end,{desc = 'move all free function definitions to the implementation file'}
+    )
+    vim.api.nvim_create_user_command("MoveAllClassDefinitionsToImplementation",
+        function()
+            moveDefinitionModule.moveAllClassDefinitionsToImplementation(M.config)
+        end,{desc = 'move all class member definitions to the implementation file'}
+    )
 end
 
 --[[
