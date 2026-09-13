@@ -2,6 +2,7 @@
 local cppModule = require("simpleCppTreesitterTools.cppModule")
 -- reading and writing files? parsing filenames? Ugh. Have a helper do the dirty work
 local helperBot = require("simpleCppTreesitterTools.fileHelpers")
+local freeFunctionModule = require("simpleCppTreesitterTools.freeFunctionModule")
 
 local M = {}
 
@@ -43,6 +44,11 @@ M.setup = function(opts)
         function()
             require("simpleCppTreesitterTools").whereAreTheSnakeCaseVariables()
         end,{desc = 'a function of convenience'}
+    )
+    vim.api.nvim_create_user_command("ImplementFunctionDeclaration",
+        function()
+            freeFunctionModule.implementCurrentDeclaration(M.config)
+        end,{desc = 'implement the free function declaration under the cursor'}
     )
 end
 
