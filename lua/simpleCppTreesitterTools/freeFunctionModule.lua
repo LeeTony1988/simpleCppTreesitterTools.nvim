@@ -1,4 +1,5 @@
 local helperBot = require("simpleCppTreesitterTools.fileHelpers")
+local namespaceHelpers = require("simpleCppTreesitterTools.namespaceHelpers")
 
 local M = {}
 
@@ -70,19 +71,23 @@ local function strip_default_arguments(parameter_list, bufnr)
     return "(" .. table.concat(parameters, ", ") .. ")"
 end
 
-local function namespace_prefix(node, bufnr)
+local function namespace_parts(node, bufnr)
     local parts = {}
     local current = node:parent()
     while current do
         if current:type() == "namespace_definition" then
             local name = field_child(current, "name")
-            if name then table.insert(parts, 1, text(name, bufnr)) end
+            local name_text = name and text(name, bufnr)
+            if not name_text or name_text == "" then
+                name_text = text(current, bufnr):match("^%s*namespace%s+([%w_:]+)")
+            end
+            if name_text and name_text ~= "" then table.insert(parts, 1, name_text) end
         end
         current = current:parent()
     end
-    if #parts == 0 then return "" end
-    return table.concat(parts, "::") .. "::"
+    return parts
 end
+
 
 local function current_declaration(bufnr)
     local node = vim.treesitter.get_node({ bufnr = bufnr })
@@ -154,9 +159,9 @@ function M.implementCurrentDeclaration(config)
         after_text = params .. after_text:sub(parameter_start + #after_text:match("%b()"))
     end
     after_text = after_text:gsub(";%s*$", "")
-    local scope = namespace_prefix(declaration, bufnr)
-    local signature = vim.trim(table.concat(before, "\n") .. scope .. text(name_node, bufnr) .. after_text)
-    local definition = { signature, "{", "}", "" }
+    local namespaces = namespace_parts(declaration, bufnr)
+    local signature = vim.trim(table.concat(before, "\n") .. text(name_node, bufnr) .. after_text)
+    local definition = { signature, "{", "}" }
 
     local extension = config.implementationExtension or ".cpp"
     local cpp_file = cpp_path(header_path, extension)
@@ -167,7 +172,9 @@ function M.implementCurrentDeclaration(config)
             vim.notify("Function definition already exists", vim.log.levels.INFO)
             return false
         end
-        vim.fn.writefile(definition, cpp_file, "a")
+        local lines = vim.fn.readfile(cpp_file)
+        namespaceHelpers.insert(lines, namespaces, definition)
+        vim.fn.writefile(lines, cpp_file)
         helperBot.refreshImplementationBuffer(cpp_file)
     end
     vim.notify("Implemented " .. text(name_node, bufnr), vim.log.levels.INFO)
